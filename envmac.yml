@@ -1,0 +1,26 @@
+name: cs236781-hw-mac
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - ipython
+  - jupyter
+  - jupyterlab
+  - matplotlib
+  - nodejs>=12
+  - numpy
+  - pandas
+  - pytest
+  - pytest-xdist
+  - scikit-learn
+  - scipy
+  - tqdm
+  - ffmpeg
+  - pip:
+      - nbmerge
+      - transformers
+      - datasets
+      - torch
+      - torchvision
+      - torchtext
