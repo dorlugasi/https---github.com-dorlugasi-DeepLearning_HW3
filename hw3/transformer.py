@@ -3,9 +3,6 @@ import torch.nn as nn
 import math
 
 
-# Yuval
-
-
 def sliding_window_attention(q, k, v, window_size, padding_mask=None):
     '''
     Computes the simple sliding window attention from 'Longformer: The Long-Document Transformer'.
@@ -22,14 +19,58 @@ def sliding_window_attention(q, k, v, window_size, padding_mask=None):
     seq_len = q.shape[-2]
     embed_dim = q.shape[-1]
     batch_size = q.shape[0]
+    device = q.device
 
-    values, attention = None, None
+    # decide if we have heads or not (3D vs 4D input)
+    has_heads = (q.dim() == 4)
 
-    # ====== YOUR CODE: ======
-    pass
-    # ======================
+    # Compute scaled dot-product scores: QK^T / sqrt(embed_dim)
+    scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(embed_dim)
 
+    # Build the sliding window mask (band matrix).
+    # True means "allowed attention", False means "blocked".
+    half = window_size // 2
+    # A neat trick: create a diagonal band using triangular matrices.
+    window_mask = torch.ones(seq_len, seq_len, device=device, dtype=torch.bool).triu(-half).tril(half)
+
+    # We want to mask OUTSIDE the window -> set them to a very negative number 
+    # before softmax.
+    neg_inf = torch.finfo(scores.dtype).min
+    # expand mask to match scores dimensions
+    if has_heads:
+        # scores: [B, H, L, L]
+        scores = scores.masked_fill(~window_mask.view(1, 1, seq_len, seq_len), neg_inf)
+    else:
+        # scores: [B, L, L]
+        scores = scores.masked_fill(~window_mask.view(1, seq_len, seq_len), neg_inf)
+
+    if padding_mask is not None:
+        # padding_mask: 1 for real tokens, 0 for padding
+        key_is_pad = (padding_mask == 0)
+        if has_heads:
+            # Broadcast over heads and query positions
+            scores = scores.masked_fill(key_is_pad[:, None, None, :], neg_inf)
+        else:
+            scores = scores.masked_fill(key_is_pad[:, None, :], neg_inf)
+
+    #softmax over keys dimension to get attention probabilities
+    attention = torch.softmax(scores, dim=-1)
+
+    # weighted sum of values
+    values = torch.matmul(attention, v)
+
+    # If queries are padding, force their outputs to be zero.
+    if padding_mask is not None:
+        query_is_real = (padding_mask != 0)
+        if has_heads:
+            attention = attention * query_is_real[:, None, :, None].to(attention.dtype)
+            values = values * query_is_real[:, None, :, None].to(values.dtype)
+        else:
+            attention = attention * query_is_real[:, :, None].to(attention.dtype)
+            values = values * query_is_real[:, :, None].to(values.dtype)
+    
     return values, attention
+
 
 class MultiHeadAttention(nn.Module):
     
@@ -68,8 +109,13 @@ class MultiHeadAttention(nn.Module):
         
         # Determine value outputs
         # call the sliding window attention function you implemented
+        # q,k,v are already in multi-head format: [B, H, L, head_dim]
+        # In addition we forward the padding_mask so padded tokens won't be attended to.
         # ====== YOUR CODE: ======
-        pass
+        values, attention = sliding_window_attention(
+            q, k, v,
+            window_size = self.window_size,
+            padding_mask = padding_mask)
         # ========================
 
         values = values.permute(0, 2, 1, 3) # [Batch, SeqLen, Head, Dims]
@@ -146,11 +192,20 @@ class EncoderLayer(nn.Module):
         '''
 
         # ====== YOUR CODE: ======
-        pass
+        # attention output has same shape as x:
+        attn_out = self.self_attn(x, padding_mask, return_attention=False)
+
+        # residual connection then dropout then layer norm (Add & Norm)
+        x = self.norm1(x + self.dropout(attn_out))
+
+        # --- Feed-forward block ---
+        ff_out = self.feed_forward(x)
+
+        # residual connection then dropout then layer norm (Add & Norm)
+        x = self.norm2(x + self.dropout(ff_out))
         # ========================
         
         return x
-    
     
     
 class Encoder(nn.Module):
@@ -188,10 +243,26 @@ class Encoder(nn.Module):
         output = None
 
         # ====== YOUR CODE: ======
-        pass
+        # token embedding
+        x = self.encoder_embedding(sentence) 
+    
+        # add positional encoding
+        x = self.positional_encoding(x)      
+    
+        # dropout on embeddings (keep exactly here)
+        x = self.dropout(x)
+    
+        # encoder stack
+        for layer in self.encoder_layers:
+            x = layer(x, padding_mask)
+    
+        # use CLS token (first token) for classification
+        cls_vec = x[:, 0, :]                
+    
+        # classification head
+        output = self.classification_mlp(cls_vec) 
         # ========================
-        
-        
+
         return output  
     
     def predict(self, sentence, padding_mask):

@@ -102,7 +102,28 @@ def part3_transformer_encoder_hyperparams():
 
     # TODO: Tweak the hyperparameters to train the transformer encoder.
     # ====== YOUR CODE: ======
-    pass
+    hypers = dict(
+        # dimensionality of token embeddings and model hidden states
+        embed_dim=64,
+
+        # number of attention heads.
+        num_heads=4,
+
+        # number of stacked transformer encoder layers
+        num_layers=2,
+
+        # hidden dimension of the position-wise feed-forward network
+        hidden_dim = 128,
+
+        # Size of the sliding attention window (must be even)
+        window_size = 8,
+
+        # dropout probability used in the encoder (helps prevent overfitting)
+        droupout = 0.1,
+
+        # Learning rate for Adam optimizer
+        lr = 5e-4,
+    )
     # ========================
     return hypers
 
